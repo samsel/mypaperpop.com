@@ -1,6 +1,7 @@
 {
   "private": true,
   "license": "AGPL-3.0-only",
+  "packageManager": "pnpm@11.1.2",
   "scripts": {
     "dev": "node scripts/dev-with-env.mjs",
     "internal:check": "node scripts/check-internal-overlay.mjs",
