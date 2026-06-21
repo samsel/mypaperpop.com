@@ -1,0 +1,33 @@
+{
+  "name": "MyPaperPop",
+  "short_name": "MyPaperPop",
+  "description": "AI coloring pages on demand for kids, parents, and teachers.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5efe3",
+  "theme_color": "#ed6a3e",
+  "icons": [
+    {
+      "src": "/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

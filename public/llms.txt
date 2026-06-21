@@ -1,0 +1,47 @@
+# MyPaperPop
+
+> Custom AI coloring page generator for kids, parents, and teachers.
+
+MyPaperPop lets you describe any character or scene in plain English and instantly generates a clean, printable coloring page (black-and-white line drawing). The app uses conversational AI so you can refine pages through follow-up messages until they are exactly what you imagined.
+
+## What it does
+
+- Generate custom coloring pages from text descriptions in seconds
+- Refine pages through multi-turn conversation ("add a rainbow", "simplify it")
+- Choose an age group (Under 4, Ages 4–7, Ages 8–11, Ages 12+) to control drawing complexity
+- Browse 8 themed prompt packs: Under the Sea, Space Adventure, Dinosaur World, Enchanted Forest, Farm Animals, Birthday Party, Superhero Squad, Transportation
+- Print or download pages as PNG files
+- Share pages via a public link
+
+## Pricing
+
+- **Free tier:** 3 coloring pages per day, no credit card required, resets at midnight UTC
+- **Starter Pack:** $2.99 one-time for 25 pages (₹299 in India)
+- **Value Pack:** $6.99 one-time for 75 pages (₹699 in India)
+- Credits never expire; no subscriptions
+
+## Referral program
+
+Share your referral link. When a new user signs up through your link, both of you receive 5 free credits instantly. Maximum 250 credits can be earned via referrals.
+
+## Who it is for
+
+- Parents who want personalized coloring activities for their children
+- Teachers who need curriculum-themed printables on demand
+- Kids aged 2–16 who want to see their own imagined characters come to life
+
+## Key pages
+
+- Homepage / app: https://mypaperpop.com
+- Pricing: https://mypaperpop.com/pricing
+- FAQ: https://mypaperpop.com/faq
+- For parents: https://mypaperpop.com/for-parents
+- For teachers: https://mypaperpop.com/for-teachers
+- Coloring pages by theme: https://mypaperpop.com/coloring-pages/dinosaur-world
+
+## Technical
+
+- Web app (Next.js), iOS app, Android app
+- Sign in with Google OAuth
+- Payments via Stripe (one-time, no subscription)
+- AI: xAI Grok Imagine for image generation, Google Gemini for conversation

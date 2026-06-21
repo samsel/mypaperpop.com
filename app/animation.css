@@ -1,0 +1,16 @@
+@keyframes sketch-reveal {
+  0% { clip-path: inset(100% 0 0 0); opacity: 0; }
+  10% { opacity: 1; }
+  100% { clip-path: inset(0 0 0 0); opacity: 1; }
+}
+.animate-sketch-reveal {
+  animation: sketch-reveal 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-sketch-reveal { animation: none; clip-path: none; opacity: 1; }
+}
+
+
+.animation-delay-2000 {
+  animation-delay: 2s;
+}

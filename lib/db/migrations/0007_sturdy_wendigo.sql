@@ -1,0 +1,2 @@
+ALTER TABLE "colored_photos" DROP CONSTRAINT "colored_photos_message_id_unique";--> statement-breakpoint
+ALTER TABLE "colored_photos" ADD CONSTRAINT "colored_photos_message_id_unique" UNIQUE("message_id");

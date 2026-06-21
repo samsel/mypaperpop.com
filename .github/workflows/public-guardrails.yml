@@ -1,0 +1,49 @@
+name: Public Guardrails
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  public-boundaries:
+    name: Public boundaries and smoke checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check repository boundaries
+        run: pnpm check:boundaries
+
+      - name: Check optional internal overlay status
+        run: pnpm internal:check
+
+      - name: Prepare smoke-test environment
+        run: cp .env.example .env
+
+      - name: Typecheck
+        run: pnpm exec tsc --noEmit
+
+      - name: Unit tests
+        run: pnpm test:unit
+
+      - name: Build
+        run: pnpm build
+

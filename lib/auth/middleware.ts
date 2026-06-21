@@ -1,0 +1,56 @@
+import { z } from 'zod';
+import { User } from '@/lib/db/schema';
+import { getUser } from '@/lib/db/queries';
+import { redirect } from 'next/navigation';
+
+export type ActionState = {
+  error?: string;
+  success?: string;
+  [key: string]: unknown;
+};
+
+type ValidatedActionWithUserFunction<S extends z.ZodType<any, any>, T> = (
+  data: z.infer<S>,
+  formData: FormData,
+  user: User
+) => Promise<T>;
+
+export function validatedActionWithUser<S extends z.ZodType<any, any>, T>(
+  schema: S,
+  action: ValidatedActionWithUserFunction<S, T>
+) {
+  return async (prevState: ActionState, formData: FormData) => {
+    const user = await getUser();
+    if (!user) {
+      throw new Error('User is not authenticated');
+    }
+
+    const result = schema.safeParse(Object.fromEntries(formData));
+    if (!result.success) {
+      return { error: result.error.issues[0]?.message || 'Invalid request' };
+    }
+
+    return action(result.data, formData, user);
+  };
+}
+
+type ActionWithUserFunction<T> = (
+  formData: FormData,
+  user: User
+) => Promise<T>;
+
+export function withUser<T>(action: ActionWithUserFunction<T>) {
+  return async (formData: FormData): Promise<T> => {
+    const user = await getUser();
+    if (!user) {
+      // Extract priceId from formData for checkout flow
+      const priceId = formData.get('priceId') as string | null;
+      if (priceId) {
+        redirect(`/?redirect=checkout&priceId=${encodeURIComponent(priceId)}#sign-in`);
+      }
+      redirect('/#sign-in');
+    }
+
+    return action(formData, user);
+  };
+}
