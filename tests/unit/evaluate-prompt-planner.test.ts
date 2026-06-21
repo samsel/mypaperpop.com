@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const generateObjectMock = vi.fn();
+const generateTextMock = vi.fn();
 
 async function loadChatModule() {
     vi.resetModules();
 
     vi.doMock('@/lib/ai/braintrust', () => ({
-        generateObject: generateObjectMock,
-        generateText: vi.fn(),
+        generateObject: vi.fn(),
+        generateText: generateTextMock,
     }));
 
     vi.doMock('@/lib/ai/config', () => ({
@@ -35,8 +35,8 @@ afterEach(() => {
 
 describe('evaluatePrompt planner contract', () => {
     it('passes explicit schema guidance to the planner provider', async () => {
-        generateObjectMock.mockResolvedValueOnce({
-            object: {
+        generateTextMock.mockResolvedValueOnce({
+            output: {
                 verdict: 'ENGAGE',
                 message: 'Hi there!',
                 suggestions: ['A funny robot'],
@@ -48,12 +48,20 @@ describe('evaluatePrompt planner contract', () => {
         await expect(evaluatePrompt([{ role: 'user', content: 'hi' }], null))
             .resolves.toMatchObject({ verdict: 'ENGAGE' });
 
-        expect(generateObjectMock).toHaveBeenCalledWith(expect.objectContaining({
-            schemaName: 'MyPaperPopPlannerResult',
-            schemaDescription: expect.stringContaining('Always return a top-level verdict'),
+        expect(generateTextMock).toHaveBeenCalledWith(expect.objectContaining({
+            output: expect.objectContaining({
+                name: 'object',
+            }),
             temperature: 0,
         }));
-        expect(generateObjectMock.mock.calls[0]?.[0].schemaDescription)
+
+        const responseFormat = await generateTextMock.mock.calls[0]?.[0].output.responseFormat;
+        expect(responseFormat).toMatchObject({
+            type: 'json',
+            name: 'MyPaperPopPlannerResult',
+            description: expect.stringContaining('Always return a top-level verdict'),
+        });
+        expect(responseFormat.description)
             .toContain('Do not return response, prompt, negative_prompt, style_raw, or aspect_ratio');
     });
 
@@ -69,7 +77,7 @@ describe('evaluatePrompt planner contract', () => {
                 }),
             },
         );
-        generateObjectMock.mockRejectedValueOnce(providerError);
+        generateTextMock.mockRejectedValueOnce(providerError);
 
         const { AiServiceUnavailableError, evaluatePrompt } = await loadChatModule();
 
@@ -79,8 +87,8 @@ describe('evaluatePrompt planner contract', () => {
     });
 
     it('rejects GENERATE results that omit required image-planning fields', async () => {
-        generateObjectMock.mockResolvedValueOnce({
-            object: {
+        generateTextMock.mockResolvedValueOnce({
+            output: {
                 verdict: 'GENERATE',
                 enhancedPrompt: 'A baby elephant',
             },

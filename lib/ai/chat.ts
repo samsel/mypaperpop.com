@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { Output } from 'ai';
 import { google as googleTools } from '@ai-sdk/google';
 import { generateObject, generateText } from './braintrust';
 import { chatModel, chatConfig, geminiProviderOptions, searchGroundingModel } from './config';
@@ -342,7 +343,7 @@ export async function searchForContext(
 
 /**
  * Gemini Call 1: Evaluate whether to generate an image or ask for clarification.
- * Fails safe: if planning errors, return a no-charge clarification instead of
+ * Fails closed: if planning errors, surface service-unavailable instead of
  * guessing that the user wanted generation.
  */
 export async function evaluatePrompt(
@@ -377,18 +378,20 @@ export async function evaluatePrompt(
         });
 
         const fetchStart = Date.now();
-        const { object } = await generateObject({
+        const { output } = await generateText({
             model: chatModel,
-            schema: evaluateSchema,
-            schemaName: 'MyPaperPopPlannerResult',
-            schemaDescription: [
-                'Conversation planner decision for MyPaperPop.',
-                'Always return a top-level verdict.',
-                'For drawing requests return GENERATE with enhancedPrompt and paperOrientation.',
-                'For greetings return ENGAGE.',
-                'For brainstorming or recommendation questions return CLARIFY.',
-                'Do not return response, prompt, negative_prompt, style_raw, or aspect_ratio.',
-            ].join(' '),
+            output: Output.object({
+                schema: evaluateSchema,
+                name: 'MyPaperPopPlannerResult',
+                description: [
+                    'Conversation planner decision for MyPaperPop.',
+                    'Always return a top-level verdict.',
+                    'For drawing requests return GENERATE with enhancedPrompt and paperOrientation.',
+                    'For greetings return ENGAGE.',
+                    'For brainstorming or recommendation questions return CLARIFY.',
+                    'Do not return response, prompt, negative_prompt, style_raw, or aspect_ratio.',
+                ].join(' '),
+            }),
             system: systemPrompt,
             messages: buildPlanningMessages(recentMessages, planningImageBase64),
             providerOptions: geminiProviderOptions,
@@ -398,7 +401,7 @@ export async function evaluatePrompt(
         });
         const fetchDuration = Date.now() - fetchStart;
 
-        const normalized = normalizeEvaluateResult(object, currentImagePrompt);
+        const normalized = normalizeEvaluateResult(output, currentImagePrompt);
 
         logger.info('ai/chat', 'evaluatePrompt response', {
             duration: fetchDuration,
