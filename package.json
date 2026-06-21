@@ -1,11 +1,11 @@
 {
   "private": true,
   "license": "AGPL-3.0-only",
-    "scripts": {
-      "dev": "node scripts/dev-with-env.mjs",
-      "internal:check": "node scripts/check-internal-overlay.mjs",
-      "check:boundaries": "node scripts/check-repo-boundaries.mjs",
-      "prebuild": "node scripts/optimize-landing-images.mjs",
+  "scripts": {
+    "dev": "node scripts/dev-with-env.mjs",
+    "internal:check": "node scripts/check-internal-overlay.mjs",
+    "check:boundaries": "node scripts/check-repo-boundaries.mjs",
+    "prebuild": "node scripts/optimize-landing-images.mjs",
     "build": "next build",
     "optimize:images": "node scripts/optimize-landing-images.mjs",
     "start": "pnpm db:migrate && next start",
@@ -91,10 +91,13 @@
     "@types/canvas-confetti": "^1.9.0",
     "@vitest/coverage-v8": "^4.1.9",
     "tsx": "^4.22.4",
+    "vite": "^8.0.16",
     "vitest": "^4.1.9"
   },
   "pnpm": {
     "overrides": {
+      "esbuild": "0.28.1",
+      "postcss": "8.5.15",
       "sharp": "^0.35.2"
     }
   }
