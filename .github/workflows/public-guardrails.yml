@@ -26,6 +26,15 @@ jobs:
           node-version: 24
           cache: pnpm
 
+      - name: Check repository boundaries before install
+        run: node scripts/check-repo-boundaries.mjs
+
+      - name: Secret scan with Gitleaks
+        run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1 detect --no-git --source /repo --redact --verbose
+
+      - name: Secret scan with TruffleHog
+        run: docker run --rm -v "$PWD:/repo" trufflesecurity/trufflehog:3.95.6 filesystem /repo --no-update --no-color --fail
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -46,4 +55,3 @@ jobs:
 
       - name: Build
         run: pnpm build
-

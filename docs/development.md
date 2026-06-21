@@ -18,6 +18,7 @@ pnpm dev
 The app expects `.env`, not `.env.local`, for local development because helper scripts and Playwright share the same environment loading behavior.
 
 Fill `.env` with real service credentials before running `pnpm db:migrate` or testing full app behavior. A placeholder `.env` is enough for static checks and build validation, but database migrations require a real `POSTGRES_URL`.
+`pnpm start` runs `pnpm db:migrate` before starting Next.js.
 
 ## Useful Commands
 
@@ -32,6 +33,7 @@ pnpm test:landing-gates
 ```
 
 The authenticated e2e suite requires a test user and `.env.test.local`.
+Install Playwright browsers with `pnpm exec playwright install` before the first Playwright run.
 
 ## Optional Internal Overlay
 

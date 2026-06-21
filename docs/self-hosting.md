@@ -24,6 +24,8 @@ Copy [.env.example](../.env.example) to `.env` and replace every placeholder wit
 
 The public repository contains the app implementation and example configuration. It does not contain MyPaperPop production credentials, production data, generated user images, or private infrastructure identifiers.
 
+Run database migrations only after `POSTGRES_URL` points to the database you intend to mutate. The `pnpm start` script runs `pnpm db:migrate` before `next start`.
+
 ## Stripe Prices
 
 The app includes MyPaperPop price IDs in [lib/payments/config.ts](../lib/payments/config.ts). Self-hosters should replace those IDs with their own Stripe price IDs before accepting payments.

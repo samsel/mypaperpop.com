@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { basename, join, relative } from 'node:path';
+import { basename, extname, join, relative } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 const root = process.cwd();
@@ -16,17 +16,17 @@ const ignoredDirs = new Set([
   'playwright-report',
 ]);
 
-const internalOnlyPaths = [
-  '.agent/',
-  'ARCHITECTURE.md',
-  'TESTING.md',
-  'docs/decisions/',
-  'docs/playbooks/',
-  'scripts/download-images.ts',
-  'scripts/setup-stripe-products.ts',
-  'scripts/configure-braintrust-online-scoring.ts',
-  'scripts/submit-indexnow.mjs',
-  'public/43927e7b02f5c2189dfe05825139bc74.txt',
+const internalOnlyPathRules = [
+  { path: '.agent/', kind: 'dir' },
+  { path: 'ARCHITECTURE.md', kind: 'file' },
+  { path: 'TESTING.md', kind: 'file' },
+  { path: 'docs/decisions/', kind: 'dir' },
+  { path: 'docs/playbooks/', kind: 'dir' },
+  { path: 'scripts/download-images.ts', kind: 'file' },
+  { path: 'scripts/setup-stripe-products.ts', kind: 'file' },
+  { path: 'scripts/configure-braintrust-online-scoring.ts', kind: 'file' },
+  { path: 'scripts/submit-indexnow.mjs', kind: 'file' },
+  { path: 'public/43927e7b02f5c2189dfe05825139bc74.txt', kind: 'file' },
 ];
 
 const allowedInternalReferenceFiles = new Set([
@@ -43,7 +43,8 @@ const allowedInternalReferenceFiles = new Set([
   'scripts/check-repo-boundaries.mjs',
 ]);
 
-const codeRoots = [
+const codeAndConfigRoots = [
+  '.github/workflows/',
   'app/',
   'auth.config.ts',
   'auth.ts',
@@ -57,12 +58,32 @@ const codeRoots = [
   'playwright.config.ts',
   'postcss.config.mjs',
   'proxy.ts',
+  'package.json',
+  'pnpm-workspace.yaml',
+  'railway.toml',
   'scripts/',
   'tests/',
   'tsconfig.json',
   'types/',
   'vitest.config.ts',
 ];
+
+const scannableConfigExtensions = new Set([
+  '.cjs',
+  '.cts',
+  '.js',
+  '.json',
+  '.jsonl',
+  '.jsx',
+  '.mjs',
+  '.mts',
+  '.sh',
+  '.toml',
+  '.ts',
+  '.tsx',
+  '.yaml',
+  '.yml',
+]);
 
 const optionalEnvKeys = [
   'AXIOM_TOKEN',
@@ -91,12 +112,17 @@ function runGit(args) {
   });
 }
 
-function trackedFiles() {
+function candidateFiles() {
   if (!hasGitCheckout()) {
     return walkFiles(root);
   }
 
-  return runGit(['ls-files', '-z']).split('\0').filter(Boolean);
+  const tracked = runGit(['ls-files', '-z']).split('\0').filter(Boolean);
+  const untracked = runGit(['ls-files', '-z', '--others', '--exclude-standard'])
+    .split('\0')
+    .filter(Boolean);
+
+  return [...new Set([...tracked, ...untracked])];
 }
 
 function walkFiles(dir) {
@@ -132,7 +158,34 @@ function readText(path) {
 }
 
 function isCodeOrConfig(path) {
-  return codeRoots.some((prefix) => path === prefix || path.startsWith(prefix));
+  return codeAndConfigRoots.some((prefix) => path === prefix || path.startsWith(prefix));
+}
+
+function isScannableCodeOrConfig(path) {
+  if (!isCodeOrConfig(path) || allowedInternalReferenceFiles.has(path)) {
+    return false;
+  }
+
+  return scannableConfigExtensions.has(extname(path));
+}
+
+function matchesPathRule(path, rule) {
+  return rule.kind === 'dir' ? path.startsWith(rule.path) : path === rule.path;
+}
+
+function hasPrivateOverlayReference(text) {
+  const patterns = [
+    /(?:^|[^A-Za-z0-9_])@\/internal(?:[\\/]|['"`\s]|$)/,
+    /(?:^|[^A-Za-z0-9_])(?:\.{1,2}[\\/])?internal[\\/]/,
+    /(?:^|[^A-Za-z0-9_])\/internal(?:[\\/]|$)/,
+    /\bfile:internal(?:[\\/]|$)/,
+    /\bworkspace:internal(?:[\\/]|$)/,
+    /\b(?:cd|--dir|-C)\s+internal\b/,
+    /\bpath\.(?:join|resolve)\s*\([^)]*['"]internal['"]/,
+    /\bprocess\.cwd\(\)[^;\n]*['"`][\\/]internal[\\/]/,
+  ];
+
+  return patterns.some((pattern) => pattern.test(text));
 }
 
 function checkInternalIgnored() {
@@ -181,13 +234,25 @@ function checkPackageScripts() {
     addError('package.json must expose check:boundaries.');
   }
 
+  if (scripts['internal:check'] !== 'node scripts/check-internal-overlay.mjs') {
+    addError('package.json internal:check must only run the safe public overlay-status helper.');
+  }
+
   for (const [name, value] of Object.entries(scripts)) {
     if (name === 'internal:check') {
       continue;
     }
 
-    if (/\binternal[\\/]/.test(String(value))) {
+    if (hasPrivateOverlayReference(String(value))) {
       addError(`package script "${name}" must not execute private overlay files.`);
+    }
+  }
+
+  for (const section of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
+    for (const [name, value] of Object.entries(pkg[section] ?? {})) {
+      if (hasPrivateOverlayReference(`${name} ${value}`)) {
+        addError(`package ${section} must not reference the private overlay: ${name}`);
+      }
     }
   }
 }
@@ -217,8 +282,8 @@ function checkTrackedFiles(files) {
       addError(`public repository must not track private overlay path: ${path}`);
     }
 
-    for (const internalPath of internalOnlyPaths) {
-      if (path === internalPath || path.startsWith(internalPath)) {
+    for (const rule of internalOnlyPathRules) {
+      if (matchesPathRule(path, rule)) {
         addError(`internal-only file is present in public repository: ${path}`);
       }
     }
@@ -230,20 +295,14 @@ function checkTrackedFiles(files) {
 }
 
 function checkCodeReferences(files) {
-  const internalReferencePattern = /(?:^|['"`\s])(?:\.{1,2}\/)*internal[\\/]/;
-
   for (const path of files) {
-    if (!isCodeOrConfig(path) || allowedInternalReferenceFiles.has(path)) {
-      continue;
-    }
-
-    if (!/\.(cjs|js|jsx|json|mjs|ts|tsx)$/.test(path)) {
+    if (!isScannableCodeOrConfig(path)) {
       continue;
     }
 
     const text = readText(path);
 
-    if (internalReferencePattern.test(text)) {
+    if (hasPrivateOverlayReference(text)) {
       addError(`public code/config must not reference private overlay files: ${path}`);
     }
   }
@@ -262,7 +321,7 @@ function checkGitState() {
   }
 }
 
-const files = trackedFiles();
+const files = candidateFiles();
 
 checkGitState();
 checkInternalIgnored();
@@ -285,4 +344,3 @@ if (errors.length > 0) {
 }
 
 console.info('Public repository boundary check passed.');
-

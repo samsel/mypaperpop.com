@@ -76,5 +76,6 @@ gitleaks detect --no-git --redact --verbose
 trufflehog filesystem . --no-update --json --no-color
 ```
 
-If `internal/` is mounted locally, scan a clean archive or fresh public clone so private files do not pollute public scan results.
+Install `gitleaks` and `trufflehog` locally before running these commands. CI runs pinned scanner containers for public pull requests and pushes.
 
+If `internal/` is mounted locally, scan a clean archive or fresh public clone so private files do not pollute public scan results.

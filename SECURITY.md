@@ -20,4 +20,6 @@ gitleaks detect --no-git --redact --verbose
 trufflehog filesystem . --no-update --json --no-color
 ```
 
+Install `gitleaks` and `trufflehog` locally before running these commands. The public GitHub workflow runs pinned scanner containers on pushes and pull requests.
+
 If `internal/` is mounted, scan a clean public archive or clone so private overlay files are not included in public-release results.

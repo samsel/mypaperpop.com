@@ -91,6 +91,8 @@ gitleaks detect --no-git --redact --verbose
 trufflehog filesystem . --no-update --json --no-color
 ```
 
+Install `gitleaks` and `trufflehog` locally before running the scanner commands. CI runs pinned scanner containers.
+
 If `internal/` is mounted, run public secret scans against a clean public archive or exclude `internal/` so private overlay files do not pollute public results.
 
 `pnpm check:boundaries` is intentionally strict. If it fails, fix the boundary violation instead of weakening the check unless the repository split itself is being intentionally redesigned.

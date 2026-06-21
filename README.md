@@ -49,6 +49,7 @@ pnpm dev
 Open [http://localhost:3000](http://localhost:3000).
 
 You need your own provider credentials for full app functionality. Run `pnpm db:migrate` only after `POSTGRES_URL` points to a real database.
+`pnpm start` runs `pnpm db:migrate` before starting Next.js, so use it only when you intend to apply pending migrations.
 
 - PostgreSQL
 - Google OAuth
@@ -72,6 +73,7 @@ pnpm test:landing-gates
 ```
 
 The full authenticated Playwright suite requires `.env.test.local` plus a test database user. See [.env.test.local.example](./.env.test.local.example).
+Install Playwright browsers with `pnpm exec playwright install` before running Playwright tests for the first time.
 
 ## Evals
 

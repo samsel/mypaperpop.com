@@ -41,7 +41,7 @@ Share your referral link. When a new user signs up through your link, both of yo
 
 ## Technical
 
-- Web app (Next.js), iOS app, Android app
+- Web app (Next.js)
 - Sign in with Google OAuth
 - Payments via Stripe (one-time, no subscription)
 - AI: xAI Grok Imagine for image generation, Google Gemini for conversation
