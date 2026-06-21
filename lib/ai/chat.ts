@@ -16,6 +16,7 @@ import { DEFAULT_ASSISTANT_GREETING, DEFAULT_SUGGESTIONS } from './prompts/image
 import { buildPlanningMessages, normalizePlanningImageBase64 } from './planning-messages';
 import { detectPolicyEvasionAttempt, POLICY_EVASION_REJECTION_MESSAGE } from './prompt-injection';
 import { isGroundedSafetyFalsePositive } from './safety-grounding';
+import { shouldStubImageGeneration } from './image-generation-stub';
 
 interface ChatMessage {
     role: 'user' | 'assistant';
@@ -139,6 +140,16 @@ export async function checkChildSafety(
         };
     }
 
+    if (shouldStubImageGeneration()) {
+        return {
+            allowed: true,
+            categories: [],
+            reason: 'Allowed by deterministic Playwright image-generation stub.',
+            confidence: 'high',
+            userMessage: undefined,
+        };
+    }
+
     const priorContext = recentMessages
         .slice(0, -1)
         .filter((m) => m.content !== CHILD_SAFETY_REJECTION_MESSAGE)
@@ -253,6 +264,8 @@ export async function searchForContext(
     userId?: number,
     conversationId?: number,
 ): Promise<GroundedVisualContext | null> {
+    if (shouldStubImageGeneration()) return null;
+
     const prompt = userMessage.trim();
     if (!prompt) return null;
 
@@ -343,6 +356,16 @@ export async function evaluatePrompt(
 
     // Cap to last N messages for token safety
     const recentMessages = messages.slice(-chatConfig.maxHistoryMessages);
+    if (shouldStubImageGeneration()) {
+        const latestUserMessage = [...recentMessages].reverse().find((m) => m.role === 'user')?.content.trim() ?? '';
+        if (!latestUserMessage) return safeClarifyFallback(currentImagePrompt);
+
+        return {
+            verdict: 'GENERATE',
+            enhancedPrompt: latestUserMessage,
+            paperOrientation: 'portrait',
+        };
+    }
 
     try {
         logger.info('ai/chat', 'evaluatePrompt request', {
@@ -467,6 +490,8 @@ export async function generateFollowUp(
     conversationHistory?: Array<{ role: string; content: string }>,
 ): Promise<FollowUpResult> {
     const fallback = getFallbackFollowUp(promptUsed);
+    if (shouldStubImageGeneration()) return fallback;
+
     const recentHistory = conversationHistory?.slice(-chatConfig.maxHistoryMessages);
 
     try {

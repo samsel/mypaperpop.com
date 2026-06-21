@@ -10,7 +10,7 @@ test.describe('Home empty-state layout', () => {
 
         await page.goto('/home?c=17');
 
-        const loadingLayout = await page.evaluate(() => {
+        const readLoadingLayout = () => page.evaluate(() => {
             const main = document.querySelector('main');
             const composer = main?.querySelector('.safe-area-bottom');
             const section = main?.querySelector('section');
@@ -28,6 +28,11 @@ test.describe('Home empty-state layout', () => {
                 composerWidth: composerInnerRect?.width ?? 0,
             };
         });
+        await expect.poll(async () => (await readLoadingLayout()).hasComposerSkeleton, {
+            timeout: 2_000,
+        }).toBe(true);
+
+        const loadingLayout = await readLoadingLayout();
 
         expect(loadingLayout.hasMain).toBe(true);
         expect(loadingLayout.hasComposerSkeleton).toBe(true);
