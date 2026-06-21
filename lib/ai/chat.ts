@@ -14,6 +14,7 @@ import {
 import type { PaperOrientation } from './prompts/image';
 import { DEFAULT_ASSISTANT_GREETING, DEFAULT_SUGGESTIONS } from './prompts/image';
 import { buildPlanningMessages, normalizePlanningImageBase64 } from './planning-messages';
+import { buildEvaluatePromptFailureFallback } from './planning-fallback';
 import { detectPolicyEvasionAttempt, POLICY_EVASION_REJECTION_MESSAGE } from './prompt-injection';
 import { isGroundedSafetyFalsePositive } from './safety-grounding';
 import { shouldStubImageGeneration } from './image-generation-stub';
@@ -403,6 +404,16 @@ export async function evaluatePrompt(
                 'The coloring page helper is temporarily unavailable. Please try again soon.',
                 error,
             );
+        }
+
+        const providerFailureFallback = buildEvaluatePromptFailureFallback(recentMessages, currentImagePrompt);
+        if (providerFailureFallback.verdict === 'GENERATE') {
+            logger.warn('ai/chat', 'evaluatePrompt failed, using deterministic generate fallback', {
+                reason: getAiErrorReason(error),
+                verdict: providerFailureFallback.verdict,
+                paperOrientation: providerFailureFallback.paperOrientation,
+            });
+            return providerFailureFallback;
         }
 
         const fallback = safeClarifyFallback(currentImagePrompt);
