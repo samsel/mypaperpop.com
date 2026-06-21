@@ -14,7 +14,6 @@ import {
 import type { PaperOrientation } from './prompts/image';
 import { DEFAULT_ASSISTANT_GREETING, DEFAULT_SUGGESTIONS } from './prompts/image';
 import { buildPlanningMessages, normalizePlanningImageBase64 } from './planning-messages';
-import { buildEvaluatePromptFailureFallback } from './planning-fallback';
 import { detectPolicyEvasionAttempt, POLICY_EVASION_REJECTION_MESSAGE } from './prompt-injection';
 import { isGroundedSafetyFalsePositive } from './safety-grounding';
 import { shouldStubImageGeneration } from './image-generation-stub';
@@ -67,22 +66,24 @@ export class AiServiceUnavailableError extends Error {
 
 // --- Zod schemas for structured output ---
 
-const evaluateSchema = z.discriminatedUnion('verdict', [
-    z.object({
-        verdict: z.literal('GENERATE'),
-        enhancedPrompt: z.string()
-            .describe('A slightly enriched version of the drawing request, adding minor visual details'),
-        paperOrientation: z.enum(['portrait', 'landscape'])
-            .describe('Best US Letter paper orientation for the drawing subject'),
-    }),
-    z.object({
-        verdict: z.enum(['CLARIFY', 'ENGAGE']),
-        message: z.string().optional()
-            .describe('A short, friendly 1-sentence response'),
-        suggestions: z.array(z.string()).optional()
-            .describe('2-4 short suggestion chips under 6 words each'),
-    }),
-]);
+const evaluateSchema = z.object({
+    verdict: z.enum(['GENERATE', 'CLARIFY', 'ENGAGE'])
+        .describe('Required planner decision. Must be exactly one of GENERATE, CLARIFY, or ENGAGE.'),
+    enhancedPrompt: z.string().optional()
+        .describe('Required only when verdict is GENERATE. A slightly enriched black-and-white coloring page prompt.'),
+    paperOrientation: z.enum(['portrait', 'landscape']).optional()
+        .describe('Required only when verdict is GENERATE. Best US Letter paper orientation for the drawing subject.'),
+    message: z.string().optional()
+        .describe('Required when verdict is CLARIFY or ENGAGE. A short, friendly 1-sentence response.'),
+    suggestions: z.array(z.string()).optional()
+        .describe('Required when verdict is CLARIFY or ENGAGE. 2-4 short suggestion chips under 6 words each.'),
+}).describe([
+    'MyPaperPop conversation planner result.',
+    'Always include a top-level verdict key.',
+    'Valid top-level keys are verdict, enhancedPrompt, paperOrientation, message, and suggestions.',
+    'Never return generic assistant keys such as response.',
+    'Never return image-generator keys such as prompt, negative_prompt, style_raw, or aspect_ratio.',
+].join(' '));
 
 const childSafetySchema = z.object({
     allowed: z.boolean(),
@@ -379,10 +380,19 @@ export async function evaluatePrompt(
         const { object } = await generateObject({
             model: chatModel,
             schema: evaluateSchema,
+            schemaName: 'MyPaperPopPlannerResult',
+            schemaDescription: [
+                'Conversation planner decision for MyPaperPop.',
+                'Always return a top-level verdict.',
+                'For drawing requests return GENERATE with enhancedPrompt and paperOrientation.',
+                'For greetings return ENGAGE.',
+                'For brainstorming or recommendation questions return CLARIFY.',
+                'Do not return response, prompt, negative_prompt, style_raw, or aspect_ratio.',
+            ].join(' '),
             system: systemPrompt,
             messages: buildPlanningMessages(recentMessages, planningImageBase64),
             providerOptions: geminiProviderOptions,
-            temperature: 0.3,
+            temperature: 0,
             maxOutputTokens: 500,
             abortSignal: AbortSignal.timeout(15_000),
         });
@@ -406,22 +416,14 @@ export async function evaluatePrompt(
             );
         }
 
-        const providerFailureFallback = buildEvaluatePromptFailureFallback(recentMessages, currentImagePrompt);
-        if (providerFailureFallback.verdict === 'GENERATE') {
-            logger.warn('ai/chat', 'evaluatePrompt failed, using deterministic generate fallback', {
-                reason: getAiErrorReason(error),
-                verdict: providerFailureFallback.verdict,
-                paperOrientation: providerFailureFallback.paperOrientation,
-            });
-            return providerFailureFallback;
-        }
-
-        const fallback = safeClarifyFallback(currentImagePrompt);
-        logger.error('ai/chat', 'evaluatePrompt failed, using no-generate fallback', {
+        logger.error('ai/chat', 'evaluatePrompt unavailable: planner schema or provider failure', {
             reason: getAiErrorReason(error),
-            verdict: fallback.verdict,
+            rawOutputShape: getAiRawOutputShape(error),
         }, error);
-        return fallback;
+        throw new AiServiceUnavailableError(
+            'The coloring page helper is temporarily unavailable. Please try again soon.',
+            error,
+        );
     }
 }
 
@@ -430,9 +432,14 @@ function normalizeEvaluateResult(
     currentImagePrompt: string | null,
 ): EvaluateResult {
     if (rawResult.verdict === 'GENERATE') {
+        const enhancedPrompt = rawResult.enhancedPrompt?.trim();
+        if (!enhancedPrompt || !rawResult.paperOrientation) {
+            throw new Error('Planner returned GENERATE without enhancedPrompt or paperOrientation');
+        }
+
         return {
             verdict: 'GENERATE',
-            enhancedPrompt: rawResult.enhancedPrompt?.trim() || undefined,
+            enhancedPrompt,
             paperOrientation: rawResult.paperOrientation,
         };
     }
@@ -486,6 +493,22 @@ function getAiErrorReason(error: unknown): string {
     if (error instanceof Error) return error.message;
     if (typeof error === 'string') return error;
     return 'unknown';
+}
+
+function getAiRawOutputShape(error: unknown): string[] | undefined {
+    const text = typeof error === 'object' && error && 'text' in error
+        ? (error as { text?: unknown }).text
+        : undefined;
+    if (typeof text !== 'string') return undefined;
+
+    try {
+        const parsed = JSON.parse(text);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? Object.keys(parsed).slice(0, 12)
+            : undefined;
+    } catch {
+        return undefined;
+    }
 }
 
 function serializeError(error: unknown): string {
