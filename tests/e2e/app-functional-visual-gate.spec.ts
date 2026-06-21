@@ -137,6 +137,53 @@ test.describe('App functional visual production gate - desktop', () => {
         await expectNoHorizontalOverflow(page);
         await attachViewportScreenshot(page, testInfo, '03-desktop-generated-actions');
     });
+
+    test('desktop print action keeps the existing image-only inline print surface', async ({ page }, testInfo) => {
+        await mockGeneratedConversation(page);
+        await page.addInitScript(() => {
+            Object.defineProperty(window, 'print', {
+                configurable: true,
+                value: () => {
+                    Object.assign(window, { __mypaperpopPrintCalled: true });
+                },
+            });
+        });
+        await page.goto('/home');
+        await waitForWelcome(page);
+
+        await page.getByTestId('chat-input').fill('A turtle astronaut');
+        await page.getByTestId('chat-input').press('Enter');
+        await expect(page.getByTestId('message-image').first()).toBeVisible();
+        await page.getByTestId('message-image').first().getByRole('button', { name: /^Print$/i }).click();
+        await expect.poll(
+            () => page.evaluate(() => Boolean((window as typeof window & { __mypaperpopPrintCalled?: boolean }).__mypaperpopPrintCalled)),
+            { message: 'desktop print button should still call browser print' },
+        ).toBe(true);
+
+        await page.emulateMedia({ media: 'print' });
+        const printRoot = page.locator('#mypaperpop-print-root');
+        await expect(printRoot).toBeVisible();
+        await expect(printRoot.locator('img')).toBeVisible();
+        await expect(page.getByTestId('chat-input')).toBeHidden();
+        const printLayout = await printRoot.evaluate((node) => {
+            const rect = node.getBoundingClientRect();
+            const image = node.querySelector('img')?.getBoundingClientRect();
+            return {
+                rootWidth: rect.width,
+                rootHeight: rect.height,
+                imageWidth: image?.width ?? 0,
+                imageHeight: image?.height ?? 0,
+                bodyPrinting: document.body.classList.contains('mypaperpop-printing'),
+            };
+        });
+        expect(printLayout.bodyPrinting, 'desktop print mode should keep the existing print body class').toBe(true);
+        expect(printLayout.rootWidth, 'desktop print root should fill printable viewport').toBeGreaterThan(600);
+        expect(printLayout.rootHeight, 'desktop print root should fill printable viewport').toBeGreaterThan(500);
+        expect(printLayout.imageWidth, 'desktop print image should render').toBeGreaterThan(300);
+        expect(printLayout.imageHeight, 'desktop print image should render').toBeGreaterThan(300);
+        await attachViewportScreenshot(page, testInfo, '04-desktop-inline-print-surface');
+        await page.emulateMedia({ media: 'screen' });
+    });
 });
 
 test.describe('App functional visual production gate - mobile', () => {
@@ -261,6 +308,12 @@ test.describe('App functional visual production gate - mobile', () => {
             () => page.evaluate(() => Boolean((window as typeof window & { __mypaperpopPrintCalled?: boolean }).__mypaperpopPrintCalled)),
             { message: 'mobile print regression should not call browser webpage print when PDF auto-open is disabled' },
         ).toBe(false);
+        await page.getByRole('button', { name: 'Print coloring page' }).click();
+        await expect(page).toHaveURL(/\/print$/);
+        await expect.poll(
+            () => page.evaluate(() => Boolean((window as typeof window & { __mypaperpopPrintCalled?: boolean }).__mypaperpopPrintCalled)),
+            { message: 'mobile print route should print the clean page instead of navigating to a PDF viewer' },
+        ).toBe(true);
 
         await page.emulateMedia({ media: 'print' });
         const printDocument = page.locator('.print-document');
