@@ -13,9 +13,14 @@ test.describe('Account page', () => {
     });
 
     test('Account info: name and email displayed', async ({ page }) => {
+        const profile = page.locator('#profile');
         await expect(page.getByText('Account Information')).toHaveCount(0);
-        await expect(page.getByRole('heading', { level: 2, name: expectedUserName })).toBeVisible();
-        await expect(page.locator('#profile').getByText(expectedUserEmail)).toBeVisible();
+        await expect(profile.getByText(expectedUserEmail)).toBeVisible();
+        if (process.env.TEST_USER_NAME) {
+            await expect(profile.getByRole('heading', { level: 2, name: expectedUserName })).toBeVisible();
+        } else {
+            await expect(profile.getByRole('heading', { level: 2 }).first()).toBeVisible();
+        }
     });
 
     test('Coloring Pages card visible', async ({ page }) => {

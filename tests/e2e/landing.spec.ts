@@ -5,6 +5,11 @@ test.describe('Landing page', () => {
 
     test.beforeEach(async ({ page }) => {
         await page.goto('/');
+        const essentialOnly = page.getByRole('button', { name: /Essential only/i });
+        await page.getByText('Privacy cookies').waitFor({ state: 'visible', timeout: 2000 }).catch(() => {});
+        if (await essentialOnly.isVisible()) {
+            await essentialOnly.click();
+        }
     });
 
     test('Nav: logo and brand mark visible', async ({ page }) => {
@@ -21,13 +26,14 @@ test.describe('Landing page', () => {
 
     test('Demo: textarea and suggestion chips', async ({ page }) => {
         await expect(page.getByPlaceholder(/corgi knight/i)).toBeVisible();
-        const chips = page.locator('section').first().locator('button').filter({ hasText: /.{5,}/ });
-        await expect(chips.first()).toBeVisible();
-        expect(await chips.count()).toBeGreaterThanOrEqual(3);
+        const chips = page.getByRole('button', { name: /A treasure chest at the bottom of the ocean/i });
+        await expect(chips).toBeVisible();
+        const demoButtons = page.locator('main').getByRole('button').filter({ hasText: /.{5,}/ });
+        expect(await demoButtons.count()).toBeGreaterThanOrEqual(3);
     });
 
     test('Demo: clicking chip opens sign-in flow for unauthenticated user', async ({ page }) => {
-        const chip = page.locator('section').first().locator('button').filter({ hasText: /.{5,}/ }).first();
+        const chip = page.getByRole('button', { name: /A treasure chest at the bottom of the ocean/i });
         await chip.click();
         await expect(page).toHaveURL(/#sign-in/);
     });
