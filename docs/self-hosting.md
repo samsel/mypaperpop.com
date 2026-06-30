@@ -18,6 +18,15 @@ MyPaperPop can be self-hosted with standard managed services.
 - Axiom for operational logs
 - Braintrust for AI traces, evals, artifacts, and online scoring
 
+Braintrust tracing defaults to the `mypaperpop.com` project in production and `mypaperpop.com-dev` elsewhere. Set `BRAINTRUST_PROJECT_NAME` if you use a different project name. To enable online scoring, push the scorer functions and configure the trace-level scoring rule:
+
+```bash
+pnpm braintrust:deploy-online-scoring
+```
+
+This requires `BRAINTRUST_API_KEY` and `BRAINTRUST_PROJECT_ID`.
+When deploying scoring rules, make sure `BRAINTRUST_PROJECT_NAME` and `BRAINTRUST_PROJECT_ID` point at the same Braintrust project. The scorer push uses the project name; the scoring-rule setup uses the project ID.
+
 ## Configuration
 
 Copy [.env.example](../.env.example) to `.env` and replace every placeholder with your own values.

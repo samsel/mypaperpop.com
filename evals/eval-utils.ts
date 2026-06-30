@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveBraintrustProjectName } from '../lib/ai/braintrust-project';
 
 export function evalDir(importMetaUrl: string): string {
     return path.dirname(fileURLToPath(importMetaUrl));
@@ -60,7 +61,7 @@ export function parseEvalArgs(): {
     return {
         localOnly,
         noSendLogs: localOnly || !process.env.BRAINTRUST_API_KEY,
-        projectName: process.env.BRAINTRUST_PROJECT_NAME || 'MyPaperPop AI Evals',
+        projectName: resolveBraintrustProjectName(),
         projectId: process.env.BRAINTRUST_PROJECT_ID,
         trialCount: Number.isFinite(trialCount) && trialCount > 0 ? trialCount : 1,
         maxConcurrency: Number.isFinite(maxConcurrency) && maxConcurrency > 0 ? maxConcurrency : 1,
