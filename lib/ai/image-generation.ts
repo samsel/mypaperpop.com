@@ -1,6 +1,6 @@
 import { uploadSketchImageBuffer, generateAndUploadVariants } from '@/lib/storage';
 import { imageConfig } from './config';
-import { imageAttachment, logBraintrust } from './braintrust';
+import { imageAttachment, logBraintrust, traceBraintrust } from './braintrust';
 import { logger } from '@/lib/logger';
 import type { PaperLayout } from './prompts/image';
 import { createStubColoringPageBuffer, shouldStubImageGeneration } from './image-generation-stub';
@@ -86,25 +86,6 @@ export async function generateAndStoreImage(
         promptLength: prompt.length,
         hasSourceImage: isEdit,
     });
-    logBraintrust({
-        metadata: {
-            step: 'xai-image-request',
-            url: apiUrl,
-            model: imageConfig.model,
-            aspectRatio: isEdit ? undefined : paperLayout.aspectRatio,
-            resolution: imageConfig.resolution,
-            paperOrientation: paperLayout.orientation,
-            paperWidthPx: paperLayout.widthPx,
-            paperHeightPx: paperLayout.heightPx,
-            promptLength: prompt.length,
-            hasSourceImage: isEdit,
-        },
-        input: {
-            prompt,
-            sourceImageUrl,
-        },
-    });
-
     let bestPrintableBuffer: Buffer | null = null;
     let bestQuality: Awaited<ReturnType<typeof analyzeColoringPageQuality>> | null = null;
     let usedQualityRetry = false;
@@ -116,75 +97,123 @@ export async function generateAndStoreImage(
             prompt: attemptPrompt,
         };
 
-        const { response, duration: fetchDuration } = await requestImageGeneration({
-            apiUrl,
-            requestBody: attemptRequestBody,
-            promptLength: attemptPrompt.length,
-            hasSourceImage: isEdit,
-        });
+        const { printableBuffer, quality } = await traceBraintrust(
+            'xai-image-api',
+            async (span) => {
+                span?.log({
+                    input: {
+                        prompt: attemptPrompt,
+                        sourceImage: describeSourceImageForBraintrust(sourceImageUrl),
+                    },
+                    metadata: {
+                        provider: 'xai',
+                        model: imageConfig.model,
+                        url: apiUrl,
+                        endpoint: isEdit ? 'images.edits' : 'images.generations',
+                        aspectRatio: isEdit ? undefined : paperLayout.aspectRatio,
+                        resolution: imageConfig.resolution,
+                        paperOrientation: paperLayout.orientation,
+                        paperWidthPx: paperLayout.widthPx,
+                        paperHeightPx: paperLayout.heightPx,
+                        promptLength: attemptPrompt.length,
+                        hasSourceImage: isEdit,
+                        qualityAttempt,
+                    },
+                });
 
-        if (!response.ok) {
-            const errorText = await response.text();
-            logger.error('ai/image-generation', 'xAI API request failed', {
-                url: apiUrl,
-                model: imageConfig.model,
-                status: response.status,
-                duration: fetchDuration,
-                responseBody: errorText.slice(0, 500),
-                promptLength: attemptPrompt.length,
-                hasSourceImage: isEdit,
-                qualityAttempt,
-            });
-            throw new Error(`xAI API error ${response.status}: ${errorText}`);
-        }
+                const { response, duration: fetchDuration } = await requestImageGeneration({
+                    apiUrl,
+                    requestBody: attemptRequestBody,
+                    promptLength: attemptPrompt.length,
+                    hasSourceImage: isEdit,
+                });
 
-        const data = await response.json();
-        const image = data?.data?.[0];
-        const rawBase64 = image?.b64_json;
-        const imageUrl = image?.url;
-        if (!rawBase64 && !imageUrl) {
-            logger.error('ai/image-generation', 'xAI returned no usable image payload', {
-                hasData: Array.isArray(data?.data),
-                keys: image ? Object.keys(image) : [],
-                qualityAttempt,
-            });
-            throw new Error('xAI returned empty image data');
-        }
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    logger.error('ai/image-generation', 'xAI API request failed', {
+                        url: apiUrl,
+                        model: imageConfig.model,
+                        status: response.status,
+                        duration: fetchDuration,
+                        responseBody: errorText.slice(0, 500),
+                        promptLength: attemptPrompt.length,
+                        hasSourceImage: isEdit,
+                        qualityAttempt,
+                    });
+                    span?.log({
+                        error: `xAI API error ${response.status}: ${errorText.slice(0, 500)}`,
+                        metadata: {
+                            status: response.status,
+                            duration: fetchDuration,
+                            responseBodyLength: errorText.length,
+                        },
+                    });
+                    throw new Error(`xAI API error ${response.status}: ${errorText}`);
+                }
 
-        logger.info('ai/image-generation', 'xAI API response', {
-            status: response.status,
-            duration: fetchDuration,
-            responseFormat: rawBase64 ? 'b64_json' : 'url',
-            responseSize: rawBase64?.length ?? 0,
-            qualityAttempt,
-        });
+                const data = await response.json();
+                const image = data?.data?.[0];
+                const rawBase64 = image?.b64_json;
+                const imageUrl = image?.url;
+                if (!rawBase64 && !imageUrl) {
+                    logger.error('ai/image-generation', 'xAI returned no usable image payload', {
+                        hasData: Array.isArray(data?.data),
+                        keys: image ? Object.keys(image) : [],
+                        qualityAttempt,
+                    });
+                    span?.log({
+                        error: 'xAI returned empty image data',
+                        metadata: {
+                            status: response.status,
+                            duration: fetchDuration,
+                            hasData: Array.isArray(data?.data),
+                            responseKeys: image ? Object.keys(image) : [],
+                        },
+                    });
+                    throw new Error('xAI returned empty image data');
+                }
 
-        const rawBuffer = rawBase64
-            ? Buffer.from(rawBase64, 'base64')
-            : await downloadImageBuffer(imageUrl);
-        const printableBuffer = await preprocessColoringPageImage(rawBuffer, paperLayout);
-        const quality = await analyzeColoringPageQuality(printableBuffer);
-        logBraintrust({
-            metadata: {
-                step: 'xai-image-artifacts',
-                qualityAttempt,
-                rawBytes: rawBuffer.length,
-                printableBytes: printableBuffer.length,
-                darkPixelPercent: quality.darkPixelPercent,
-                darkPixelPasses: quality.passes,
-                darkPixelReason: quality.reason,
+                logger.info('ai/image-generation', 'xAI API response', {
+                    status: response.status,
+                    duration: fetchDuration,
+                    responseFormat: rawBase64 ? 'b64_json' : 'url',
+                    responseSize: rawBase64?.length ?? 0,
+                    qualityAttempt,
+                });
+
+                const rawBuffer = rawBase64
+                    ? Buffer.from(rawBase64, 'base64')
+                    : await downloadImageBuffer(imageUrl);
+                const printableBuffer = await preprocessColoringPageImage(rawBuffer, paperLayout);
+                const quality = await analyzeColoringPageQuality(printableBuffer);
+
+                span?.log({
+                    metadata: {
+                        status: response.status,
+                        duration: fetchDuration,
+                        responseFormat: rawBase64 ? 'b64_json' : 'url',
+                        rawBytes: rawBuffer.length,
+                        printableBytes: printableBuffer.length,
+                        darkPixelPercent: quality.darkPixelPercent,
+                        darkPixelPasses: quality.passes,
+                        darkPixelReason: quality.reason,
+                    },
+                    output: {
+                        rawImage: imageAttachment({
+                            data: rawBuffer,
+                            filename: `xai-raw-attempt-${qualityAttempt}.png`,
+                        }),
+                        printableImage: imageAttachment({
+                            data: printableBuffer,
+                            filename: `xai-printable-attempt-${qualityAttempt}.png`,
+                        }),
+                    },
+                });
+
+                return { printableBuffer, quality };
             },
-            output: {
-                rawImage: imageAttachment({
-                    data: rawBuffer,
-                    filename: `xai-raw-attempt-${qualityAttempt}.png`,
-                }),
-                printableImage: imageAttachment({
-                    data: printableBuffer,
-                    filename: `xai-printable-attempt-${qualityAttempt}.png`,
-                }),
-            },
-        });
+            { type: 'llm' },
+        );
 
         logger.info('ai/image-generation', 'Printable image quality analyzed', {
             darkPixelPercent: quality.darkPixelPercent,
@@ -312,6 +341,30 @@ async function requestImageGeneration(input: {
     }
 
     throw lastError instanceof Error ? lastError : new Error('xAI API request failed');
+}
+
+function describeSourceImageForBraintrust(sourceImageUrl?: string): Record<string, unknown> | null {
+    if (!sourceImageUrl) return null;
+
+    const dataUrlMatch = /^data:([^;,]+)?(;base64)?,(.*)$/s.exec(sourceImageUrl);
+    if (dataUrlMatch) {
+        const [, contentType, encoding, payload] = dataUrlMatch;
+        return {
+            present: true,
+            kind: 'data-url',
+            contentType: contentType || 'application/octet-stream',
+            encoding: encoding ? 'base64' : 'url-encoded',
+            byteEstimate: encoding ? Math.floor((payload.length * 3) / 4) : payload.length,
+        };
+    }
+
+    return {
+        present: true,
+        kind: sourceImageUrl.startsWith('http://') || sourceImageUrl.startsWith('https://')
+            ? 'remote-url'
+            : 'other-url',
+        length: sourceImageUrl.length,
+    };
 }
 
 async function downloadImageBuffer(url: string): Promise<Buffer> {

@@ -44,14 +44,29 @@ describe('Braintrust AI SDK tracing', () => {
         expect(module.generateText).toEqual(expect.any(Function));
     });
 
-    it('uses the Braintrust onboarding project by default', async () => {
+    it('uses the MyPaperPop dev project by default', async () => {
         vi.stubEnv('BRAINTRUST_API_KEY', 'sk-test');
         vi.stubEnv('BRAINTRUST_PROJECT_NAME', '');
+        vi.stubEnv('VERCEL_ENV', '');
+        vi.stubEnv('NODE_ENV', 'development');
 
         const { initLogger } = await loadBraintrustModule();
 
         expect(initLogger).toHaveBeenCalledWith({
-            projectName: 'My Project',
+            projectName: 'mypaperpop.com-dev',
+            apiKey: 'sk-test',
+        });
+    });
+
+    it('uses the MyPaperPop production project in production', async () => {
+        vi.stubEnv('BRAINTRUST_API_KEY', 'sk-test');
+        vi.stubEnv('BRAINTRUST_PROJECT_NAME', '');
+        vi.stubEnv('VERCEL_ENV', 'production');
+
+        const { initLogger } = await loadBraintrustModule();
+
+        expect(initLogger).toHaveBeenCalledWith({
+            projectName: 'mypaperpop.com',
             apiKey: 'sk-test',
         });
     });

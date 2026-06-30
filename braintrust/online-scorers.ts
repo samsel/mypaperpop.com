@@ -1,6 +1,8 @@
 import { projects, type SpanData, type Trace } from 'braintrust';
+import { ONLINE_SCORER_SLUGS } from './online-scoring-config';
+import { resolveBraintrustProjectName } from '../lib/ai/braintrust-project';
 
-const projectName = process.env.BRAINTRUST_PROJECT_NAME || 'My Project';
+const projectName = resolveBraintrustProjectName();
 const project = projects.create({ name: projectName });
 
 type RootOutput = {
@@ -25,23 +27,25 @@ type ScorerArgs = {
 
 project.scorers.create({
     name: 'MyPaperPop trace completed',
-    slug: 'mypaperpop-trace-completed',
-    description: 'Scores 1 when a production conversation trace returns an ok status and does not fall back after image generation.',
+    slug: ONLINE_SCORER_SLUGS[0],
+    description: 'Scores 1 when a production conversation trace reaches a valid terminal state and does not fall back after image generation.',
     ifExists: 'replace',
     tags: ['mypaperpop', 'production', 'trace-health'],
     handler: async ({ output }: ScorerArgs) => {
-        if (!output || output.status !== 'ok') return 0;
+        if (!output || !isValidTerminalStatus(output.status)) return 0;
         return hasImageGenerationFailure(output) ? 0 : 1;
     },
 });
 
 project.scorers.create({
     name: 'MyPaperPop image delivered when required',
-    slug: 'mypaperpop-generated-image-delivered',
+    slug: ONLINE_SCORER_SLUGS[1],
     description: 'Scores non-generation traces as passing, and generation traces by requiring an assistant image URL, download URL, and stored prompt.',
     ifExists: 'replace',
     tags: ['mypaperpop', 'production', 'image-generation'],
     handler: async ({ output, trace }: ScorerArgs) => {
+        if (output?.status === 'no_credits') return 1;
+
         const spans = await getSpans(trace);
         const plannedGenerate = spans.some((span) => (
             spanName(span) === 'planning'
@@ -49,6 +53,12 @@ project.scorers.create({
         ));
 
         if (!plannedGenerate) return 1;
+
+        const quotaAllowed = spans.some((span) => (
+            spanName(span) === 'quota'
+            && readPath(span.metadata, ['quotaAllowed']) === true
+        ));
+        if (!quotaAllowed) return 1;
 
         const assistantMessages = output?.messages?.filter((message) => message.role === 'assistant') ?? [];
         const deliveredImage = assistantMessages.some((message) => (
@@ -64,16 +74,24 @@ project.scorers.create({
 
 project.scorers.create({
     name: 'MyPaperPop pipeline spans present',
-    slug: 'mypaperpop-pipeline-spans-present',
+    slug: ONLINE_SCORER_SLUGS[2],
     description: 'Scores 1 when traces contain the expected child spans for the path the planner selected.',
     ifExists: 'replace',
     tags: ['mypaperpop', 'production', 'trace-shape'],
     handler: async ({ trace }: ScorerArgs) => {
         const spans = await getSpans(trace);
         const names = new Set(spans.map(spanName).filter(Boolean));
-        const base = ['grounding', 'safety', 'planning'];
+        const base = ['grounding', 'safety'];
 
         if (!base.every((name) => names.has(name))) return 0;
+
+        const safetyRejected = spans.some((span) => (
+            spanName(span) === 'safety'
+            && readPath(span.output, ['allowed']) === false
+        ));
+        if (safetyRejected) return 1;
+
+        if (!names.has('planning')) return 0;
 
         const plannedGenerate = spans.some((span) => (
             spanName(span) === 'planning'
@@ -81,6 +99,18 @@ project.scorers.create({
         ));
 
         if (!plannedGenerate) return 1;
+
+        const preQuotaPath = [
+            'prompt-construction',
+            'quota',
+        ];
+        if (!preQuotaPath.every((name) => names.has(name))) return 0;
+
+        const quotaAllowed = spans.some((span) => (
+            spanName(span) === 'quota'
+            && readPath(span.metadata, ['quotaAllowed']) === true
+        ));
+        if (!quotaAllowed) return 1;
 
         const generatePath = [
             'prompt-construction',
@@ -110,6 +140,10 @@ function spanName(span: SpanData): string {
 
 function hasImageGenerationFailure(output: RootOutput): boolean {
     return output.messages?.some((message) => message.content?.includes('[image-generation-failed]')) ?? false;
+}
+
+function isValidTerminalStatus(status: string | undefined): boolean {
+    return status === 'ok' || status === 'no_credits';
 }
 
 function readPath(value: unknown, path: string[]): unknown {

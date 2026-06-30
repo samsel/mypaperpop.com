@@ -2,8 +2,9 @@ import 'server-only';
 
 import * as ai from 'ai';
 import { Attachment, currentSpan, initLogger, wrapAISDK } from 'braintrust';
+import { resolveBraintrustProjectName } from './braintrust-project';
 
-const braintrustProjectName = process.env.BRAINTRUST_PROJECT_NAME || 'My Project';
+const braintrustProjectName = resolveBraintrustProjectName();
 const braintrustApiKey = process.env.BRAINTRUST_API_KEY;
 const braintrustLogger = braintrustApiKey
     ? initLogger({

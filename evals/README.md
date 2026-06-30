@@ -13,6 +13,8 @@ This directory contains Braintrust evals for the real MyPaperPop AI product path
 - `pnpm eval:ai:real-images` runs real xAI image generation and a configurable VLM judge.
 - `pnpm eval:ai:validate` validates JSONL case syntax and shape only. It is not an eval.
 - `pnpm braintrust:push-scorers` deploys the production online scorers to Braintrust.
+- `pnpm braintrust:setup-online-scoring` creates or replaces the Braintrust online scoring rule after scorers are pushed.
+- `pnpm braintrust:deploy-online-scoring` pushes scorers, then creates or replaces the online scoring rule.
 
 There is no dry mode. Eval commands call the app's configured providers. Use `--local` only when you want to run real provider calls without sending Braintrust experiment logs.
 
@@ -47,7 +49,23 @@ AI_EVAL_MAX_CONCURRENCY=1
 
 If `BRAINTRUST_API_KEY` is absent, evals still run provider calls but use `noSendLogs`.
 
-Braintrust online scoring rules can be configured in the Braintrust UI after pushing scorers.
+Braintrust project names default to `mypaperpop.com` in production and `mypaperpop.com-dev` elsewhere. Set `BRAINTRUST_PROJECT_NAME` explicitly if you want a different project.
+
+Braintrust online scoring setup requires:
+
+```bash
+BRAINTRUST_API_KEY=...
+BRAINTRUST_PROJECT_ID=...
+```
+
+Run:
+
+```bash
+pnpm braintrust:deploy-online-scoring
+```
+
+The setup command uses Braintrust's project-score API to create or replace the `MyPaperPop production trace scoring` trace-level online scoring rule.
+The scorer push is project-name based and the rule setup is project-ID based, so `BRAINTRUST_PROJECT_NAME` and `BRAINTRUST_PROJECT_ID` must refer to the same Braintrust project. The setup script fails if the expected scorer functions are missing from the target project ID.
 
 Axiom remains the operational log sink for app/server diagnostics. Braintrust is the AI product observability, artifact, eval, and online-scoring system.
 
