@@ -148,7 +148,7 @@ test.describe('Chat', () => {
             test.skip();
             return;
         }
-        await textarea.fill('A brave knight');
+        await textarea.fill('A brave knight coloring page with bold black outlines, a castle path, and clear kid-friendly details.');
         await page.locator('[data-testid="chat-send"]').click();
 
         // During loading, textarea should be disabled

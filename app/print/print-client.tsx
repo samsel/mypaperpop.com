@@ -1,7 +1,7 @@
 'use client';
 
 import { ArrowLeft, Printer } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 type PrintPayload = {
     imageUrl: string;
@@ -235,20 +235,20 @@ export function PrintClient() {
         };
     }, [payload]);
 
-    const openPrintPdf = () => {
+    const printPage = useCallback(() => {
         if (!printAsset) return;
         Object.assign(window, { __mypaperpopPrintCalled: true });
-        window.location.assign(printAsset.pdfUrl);
-    };
+        window.print();
+    }, [printAsset]);
 
     useEffect(() => {
         if (!ready || !printAsset || didPrintRef.current) return;
         didPrintRef.current = true;
         const isTestDisabled = Boolean((window as typeof window & { __mypaperpopDisableAutoPdfOpen?: boolean }).__mypaperpopDisableAutoPdfOpen);
         if (isTestDisabled) return;
-        const timeout = window.setTimeout(openPrintPdf, 500);
+        const timeout = window.setTimeout(printPage, 500);
         return () => window.clearTimeout(timeout);
-    }, [printAsset, ready]);
+    }, [printAsset, printPage, ready]);
 
     const goBack = () => {
         window.location.assign(payload?.returnTo || '/home');
@@ -345,7 +345,7 @@ export function PrintClient() {
                 <div className="font-display text-lg font-bold">Print preview</div>
                 <button
                     type="button"
-                    onClick={openPrintPdf}
+                    onClick={printPage}
                     className="inline-flex h-10 w-10 items-center justify-center rounded-full border-2 border-[#2f261c] bg-[#ff7a1a] text-white shadow-[2px_2px_0_#2f261c]"
                     aria-label="Print coloring page"
                     disabled={!printAsset}

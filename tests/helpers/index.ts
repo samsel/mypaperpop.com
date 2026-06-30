@@ -7,7 +7,7 @@ export async function waitForWelcome(page: Page) {
 
 /** Submit a chat prompt and wait for the generated image to appear. */
 export async function sendPromptAndWaitForImage(page: Page, text: string) {
-    await sendPrompt(page, text);
+    await sendPrompt(page, `${text} coloring page with bold black outlines, a simple background, and clear kid-friendly details.`);
     await expect(page.locator('img[alt="Generated coloring page"]').first()).toBeVisible({ timeout: 30_000 });
 }
 

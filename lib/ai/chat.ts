@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { Output } from 'ai';
 import { google as googleTools } from '@ai-sdk/google';
 import { generateObject, generateText } from './braintrust';
 import { chatModel, chatConfig, geminiProviderOptions, searchGroundingModel } from './config';
@@ -16,6 +17,7 @@ import { DEFAULT_ASSISTANT_GREETING, DEFAULT_SUGGESTIONS } from './prompts/image
 import { buildPlanningMessages, normalizePlanningImageBase64 } from './planning-messages';
 import { detectPolicyEvasionAttempt, POLICY_EVASION_REJECTION_MESSAGE } from './prompt-injection';
 import { isGroundedSafetyFalsePositive } from './safety-grounding';
+import { shouldStubImageGeneration } from './image-generation-stub';
 
 interface ChatMessage {
     role: 'user' | 'assistant';
@@ -65,22 +67,24 @@ export class AiServiceUnavailableError extends Error {
 
 // --- Zod schemas for structured output ---
 
-const evaluateSchema = z.discriminatedUnion('verdict', [
-    z.object({
-        verdict: z.literal('GENERATE'),
-        enhancedPrompt: z.string()
-            .describe('A slightly enriched version of the drawing request, adding minor visual details'),
-        paperOrientation: z.enum(['portrait', 'landscape'])
-            .describe('Best US Letter paper orientation for the drawing subject'),
-    }),
-    z.object({
-        verdict: z.enum(['CLARIFY', 'ENGAGE']),
-        message: z.string().optional()
-            .describe('A short, friendly 1-sentence response'),
-        suggestions: z.array(z.string()).optional()
-            .describe('2-4 short suggestion chips under 6 words each'),
-    }),
-]);
+const evaluateSchema = z.object({
+    verdict: z.enum(['GENERATE', 'CLARIFY', 'ENGAGE'])
+        .describe('Required planner decision. Must be exactly one of GENERATE, CLARIFY, or ENGAGE.'),
+    enhancedPrompt: z.string().optional()
+        .describe('Required only when verdict is GENERATE. A slightly enriched black-and-white coloring page prompt.'),
+    paperOrientation: z.enum(['portrait', 'landscape']).optional()
+        .describe('Required only when verdict is GENERATE. Best US Letter paper orientation for the drawing subject.'),
+    message: z.string().optional()
+        .describe('Required when verdict is CLARIFY or ENGAGE. A short, friendly 1-sentence response.'),
+    suggestions: z.array(z.string()).optional()
+        .describe('Required when verdict is CLARIFY or ENGAGE. 2-4 short suggestion chips under 6 words each.'),
+}).describe([
+    'MyPaperPop conversation planner result.',
+    'Always include a top-level verdict key.',
+    'Valid top-level keys are verdict, enhancedPrompt, paperOrientation, message, and suggestions.',
+    'Never return generic assistant keys such as response.',
+    'Never return image-generator keys such as prompt, negative_prompt, style_raw, or aspect_ratio.',
+].join(' '));
 
 const childSafetySchema = z.object({
     allowed: z.boolean(),
@@ -136,6 +140,16 @@ export async function checkChildSafety(
             reason: 'Deterministic precheck matched policy-evasion or prompt-injection language.',
             confidence: 'high',
             userMessage: POLICY_EVASION_REJECTION_MESSAGE,
+        };
+    }
+
+    if (shouldStubImageGeneration()) {
+        return {
+            allowed: true,
+            categories: [],
+            reason: 'Allowed by deterministic Playwright image-generation stub.',
+            confidence: 'high',
+            userMessage: undefined,
         };
     }
 
@@ -253,6 +267,8 @@ export async function searchForContext(
     userId?: number,
     conversationId?: number,
 ): Promise<GroundedVisualContext | null> {
+    if (shouldStubImageGeneration()) return null;
+
     const prompt = userMessage.trim();
     if (!prompt) return null;
 
@@ -327,7 +343,7 @@ export async function searchForContext(
 
 /**
  * Gemini Call 1: Evaluate whether to generate an image or ask for clarification.
- * Fails safe: if planning errors, return a no-charge clarification instead of
+ * Fails closed: if planning errors, surface service-unavailable instead of
  * guessing that the user wanted generation.
  */
 export async function evaluatePrompt(
@@ -343,6 +359,16 @@ export async function evaluatePrompt(
 
     // Cap to last N messages for token safety
     const recentMessages = messages.slice(-chatConfig.maxHistoryMessages);
+    if (shouldStubImageGeneration()) {
+        const latestUserMessage = [...recentMessages].reverse().find((m) => m.role === 'user')?.content.trim() ?? '';
+        if (!latestUserMessage) return safeClarifyFallback(currentImagePrompt);
+
+        return {
+            verdict: 'GENERATE',
+            enhancedPrompt: latestUserMessage,
+            paperOrientation: 'portrait',
+        };
+    }
 
     try {
         logger.info('ai/chat', 'evaluatePrompt request', {
@@ -352,19 +378,30 @@ export async function evaluatePrompt(
         });
 
         const fetchStart = Date.now();
-        const { object } = await generateObject({
+        const { output } = await generateText({
             model: chatModel,
-            schema: evaluateSchema,
+            output: Output.object({
+                schema: evaluateSchema,
+                name: 'MyPaperPopPlannerResult',
+                description: [
+                    'Conversation planner decision for MyPaperPop.',
+                    'Always return a top-level verdict.',
+                    'For drawing requests return GENERATE with enhancedPrompt and paperOrientation.',
+                    'For greetings return ENGAGE.',
+                    'For brainstorming or recommendation questions return CLARIFY.',
+                    'Do not return response, prompt, negative_prompt, style_raw, or aspect_ratio.',
+                ].join(' '),
+            }),
             system: systemPrompt,
             messages: buildPlanningMessages(recentMessages, planningImageBase64),
             providerOptions: geminiProviderOptions,
-            temperature: 0.3,
+            temperature: 0,
             maxOutputTokens: 500,
             abortSignal: AbortSignal.timeout(15_000),
         });
         const fetchDuration = Date.now() - fetchStart;
 
-        const normalized = normalizeEvaluateResult(object, currentImagePrompt);
+        const normalized = normalizeEvaluateResult(output, currentImagePrompt);
 
         logger.info('ai/chat', 'evaluatePrompt response', {
             duration: fetchDuration,
@@ -382,12 +419,14 @@ export async function evaluatePrompt(
             );
         }
 
-        const fallback = safeClarifyFallback(currentImagePrompt);
-        logger.error('ai/chat', 'evaluatePrompt failed, using no-generate fallback', {
+        logger.error('ai/chat', 'evaluatePrompt unavailable: planner schema or provider failure', {
             reason: getAiErrorReason(error),
-            verdict: fallback.verdict,
+            rawOutputShape: getAiRawOutputShape(error),
         }, error);
-        return fallback;
+        throw new AiServiceUnavailableError(
+            'The coloring page helper is temporarily unavailable. Please try again soon.',
+            error,
+        );
     }
 }
 
@@ -396,9 +435,14 @@ function normalizeEvaluateResult(
     currentImagePrompt: string | null,
 ): EvaluateResult {
     if (rawResult.verdict === 'GENERATE') {
+        const enhancedPrompt = rawResult.enhancedPrompt?.trim();
+        if (!enhancedPrompt || !rawResult.paperOrientation) {
+            throw new Error('Planner returned GENERATE without enhancedPrompt or paperOrientation');
+        }
+
         return {
             verdict: 'GENERATE',
-            enhancedPrompt: rawResult.enhancedPrompt?.trim() || undefined,
+            enhancedPrompt,
             paperOrientation: rawResult.paperOrientation,
         };
     }
@@ -454,6 +498,22 @@ function getAiErrorReason(error: unknown): string {
     return 'unknown';
 }
 
+function getAiRawOutputShape(error: unknown): string[] | undefined {
+    const text = typeof error === 'object' && error && 'text' in error
+        ? (error as { text?: unknown }).text
+        : undefined;
+    if (typeof text !== 'string') return undefined;
+
+    try {
+        const parsed = JSON.parse(text);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? Object.keys(parsed).slice(0, 12)
+            : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
 function serializeError(error: unknown): string {
     try {
         return JSON.stringify(error, Object.getOwnPropertyNames(error ?? {}));
@@ -467,6 +527,8 @@ export async function generateFollowUp(
     conversationHistory?: Array<{ role: string; content: string }>,
 ): Promise<FollowUpResult> {
     const fallback = getFallbackFollowUp(promptUsed);
+    if (shouldStubImageGeneration()) return fallback;
+
     const recentHistory = conversationHistory?.slice(-chatConfig.maxHistoryMessages);
 
     try {
