@@ -2,6 +2,10 @@
 
 This directory contains Braintrust evals for the real MyPaperPop AI product path.
 
+When adding grounding cases, use the optional
+[reference research workflow](../docs/grounding-reference-research.md) to check
+named references against public sources before choosing expected assertions.
+
 ## Commands
 
 - `pnpm eval:ai` runs the core provider-backed AI eval suites.
